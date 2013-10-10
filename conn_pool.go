@@ -99,6 +99,11 @@ func (cp *connectionPool) Return(c *memcached.Client) {
 	}
 
 	if c.IsHealthy() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.Close()
+			}
+		}()
 		select {
 		case cp.connections <- c:
 		default:
