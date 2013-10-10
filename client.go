@@ -574,7 +574,9 @@ func (b *Bucket) WaitForPersistence(k string, cas uint64, deletion bool) error {
 		}
 
 		if result.PersistenceTime > 0 {
-			timeout = 2 * result.PersistenceTime
+			if result.PersistenceTime < time.Second {
+				sleepDelay = result.PersistenceTime
+			}
 		}
 		if time.Since(start) >= timeout-sleepDelay {
 			return ErrTimeout
