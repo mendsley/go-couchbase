@@ -222,11 +222,40 @@ func (b *Bucket) refresh() (err error) {
 		return err
 	}
 	b.pool = pool
-	for i := range b.connections {
-		b.connections[i] = newConnectionPool(
-			b.VBucketServerMap.ServerList[i],
-			b.authHandler(), 4)
+
+	// build map of desired connections
+	conns := make(map[string]*connectionPool)
+	for _, host := range b.VBucketServerMap.ServerList {
+		conns[host] = nil
 	}
+
+	// preserve existing connections, and close departing connections
+	for _, cp := range b.connections {
+		if _, ok := conns[cp.host]; ok {
+			conns[cp.host] = cp
+		} else {
+			cp.Close()
+		}
+	}
+
+	// craete new connection pools
+	for host, cp := range conns {
+		if cp == nil {
+			conns[host] = newConnectionPool(
+				host,
+				b.authHandler(), 4)
+		}
+	}
+
+	// rebuild connection list
+	if cap(b.connections) < len(b.VBucketServerMap.ServerList) {
+		b.connections = make([]*connectionPool, len(b.VBucketServerMap.ServerList))
+	}
+	b.connections = b.connections[:len(b.VBucketServerMap.ServerList)]
+	for ii, host := range b.VBucketServerMap.ServerList {
+		b.connections[ii] = conns[host]
+	}
+
 	return nil
 }
 
@@ -240,8 +269,6 @@ func (p *Pool) refresh() (err error) {
 	}
 	for _, b := range buckets {
 		b.pool = p
-		b.connections = make([]*connectionPool, len(b.VBucketServerMap.ServerList))
-
 		p.BucketMap[b.Name] = b
 	}
 	return nil
