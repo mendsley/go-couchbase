@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // The HTTP Client To Use
@@ -98,6 +99,7 @@ type Bucket struct {
 	pool        *Pool
 	connections []*connectionPool
 	commonSufix string
+	lock        sync.RWMutex
 }
 
 func (b Bucket) authHandler() (ah AuthHandler) {
@@ -215,7 +217,21 @@ func Connect(baseU string) (Client, error) {
 	return ConnectWithAuth(baseU, basicAuthFromURL(baseU))
 }
 
+func (b *Bucket) getConnectionPool(key string) (*connectionPool, uint16) {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+	vb := b.VBHash(key)
+	if uint32(len(b.VBucketServerMap.VBucketMap)) < vb || len(b.VBucketServerMap.VBucketMap[vb]) < 1 {
+		return nil, uint16(vb)
+	}
+	masterId := b.VBucketServerMap.VBucketMap[vb][0]
+	return b.connections[masterId], uint16(vb)
+}
+
 func (b *Bucket) refresh() (err error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
 	pool := b.pool
 	err = pool.client.parseURLResponse(b.URI, b)
 	if err != nil {

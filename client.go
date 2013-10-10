@@ -46,17 +46,30 @@ var MaxBulkRetries = 10
 // Note that this automatically handles transient errors by replaying
 // your function on a "not-my-vbucket" error, so don't assume
 // your command will only be executed only once.
+var errNoServers = errors.New("no servers")
 func (b *Bucket) Do(k string, f func(mc *memcached.Client, vb uint16) error) error {
-	vb := b.VBHash(k)
 	for {
-		masterId := b.VBucketServerMap.VBucketMap[vb][0]
-		conn, err := b.connections[masterId].Get()
-		defer b.connections[masterId].Return(conn)
-		if err != nil {
-			return err
+		var vb uint16
+		err := func() error {
+			var cp *connectionPool
+			cp, vb = b.getConnectionPool(k)
+			if cp == nil {
+				return errNoServers
+			}
+			conn, err := cp.Get()
+			defer cp.Return(conn)
+			if err != nil {
+				return err
+			}
+
+			return f(conn, uint16(vb))
+		}()
+
+		if err == errNoServers {
+			b.refresh()
+			continue
 		}
 
-		err = f(conn, uint16(vb))
 		switch resp := err.(type) {
 		default:
 			return err
