@@ -51,12 +51,17 @@ func (feed *TapFeed) run() {
 	bucketOK := true
 	for {
 		// Connect to the TAP feed of each server node:
+		var feedErr error
 		if bucketOK {
 			killSwitch, err := feed.connectToNodes()
 			if err == nil {
 				// Run until one of the sub-feeds fails:
 				select {
-				case <-killSwitch:
+				case feedErr = <-killSwitch:
+					if feedErr == nil {
+						feed.Close()
+						return
+					}
 				case <-feed.quit:
 					return
 				}
@@ -66,8 +71,8 @@ func (feed *TapFeed) run() {
 		}
 
 		// On error, try to refresh the bucket in case the list of nodes changed:
-		log.Printf("go-couchbase: TAP connection lost; reconnecting to bucket %q in %v",
-			feed.bucket.Name, retryInterval)
+		log.Printf("go-couchbase: TAP connection lost %v; reconnecting to bucket %q in %v",
+			feedErr, feed.bucket.Name, retryInterval)
 		err := feed.bucket.refresh()
 		bucketOK = err == nil
 
@@ -82,8 +87,8 @@ func (feed *TapFeed) run() {
 	}
 }
 
-func (feed *TapFeed) connectToNodes() (killSwitch chan bool, err error) {
-	killSwitch = make(chan bool)
+func (feed *TapFeed) connectToNodes() (killSwitch chan error, err error) {
+	killSwitch = make(chan error)
 	for _, serverConn := range feed.bucket.getConnPools() {
 		var singleFeed *memcached.TapFeed
 		singleFeed, err = serverConn.StartTapFeed(feed.args)
@@ -99,7 +104,7 @@ func (feed *TapFeed) connectToNodes() (killSwitch chan bool, err error) {
 }
 
 // Goroutine that forwards Tap events from a single node's feed to the aggregate feed.
-func (feed *TapFeed) forwardTapEvents(singleFeed *memcached.TapFeed, killSwitch chan bool, host string) {
+func (feed *TapFeed) forwardTapEvents(singleFeed *memcached.TapFeed, killSwitch chan error, host string) {
 	for {
 		select {
 		case event, ok := <-singleFeed.C:
@@ -107,7 +112,7 @@ func (feed *TapFeed) forwardTapEvents(singleFeed *memcached.TapFeed, killSwitch 
 				if singleFeed.Error != nil {
 					log.Printf("go-couchbase: Tap feed from %s failed: %v", host, singleFeed.Error)
 				}
-				killSwitch <- true
+				killSwitch <- singleFeed.Error
 				return
 			}
 			feed.output <- event
