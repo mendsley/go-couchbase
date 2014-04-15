@@ -22,7 +22,7 @@ import (
 var HTTPClient = http.DefaultClient
 
 // PoolSize is the size of each connection pool (per host).
-var PoolSize = 4
+var PoolSize = 24
 
 // PoolOverflow is the number of overflow connections allowed in a
 // pool.
