@@ -2,6 +2,7 @@ package couchbase
 
 import (
 	"errors"
+	"log"
 	"time"
 
 	"github.com/dustin/gomemcached/client"
@@ -160,6 +161,7 @@ func (cp *connectionPool) Return(c *memcached.Client) {
 			c.Close()
 		}
 	} else {
+		log.Print("[COUCHBASE] Connection pool rejecting unhealthy connection")
 		<-cp.createsem
 		c.Close()
 	}
