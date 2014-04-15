@@ -2,6 +2,7 @@ package couchbase
 
 import (
 	"log"
+	"sync"
 	"time"
 
 	"github.com/dustin/gomemcached/client"
@@ -92,8 +93,10 @@ func (feed *TapFeed) run() {
 }
 
 func (feed *TapFeed) connectToNodes() (killSwitch chan error, err error) {
-	killSwitch = make(chan error)
-	for _, serverConn := range feed.bucket.getConnPools() {
+	var wg sync.WaitGroup
+	pools := feed.bucket.getConnPools()
+	killSwitch = make(chan error, len(pools))
+	for _, serverConn := range pools {
 		var singleFeed *memcached.TapFeed
 		singleFeed, err = serverConn.StartTapFeed(feed.args)
 		if err != nil {
@@ -102,13 +105,20 @@ func (feed *TapFeed) connectToNodes() (killSwitch chan error, err error) {
 			return
 		}
 		feed.nodeFeeds = append(feed.nodeFeeds, singleFeed)
-		go feed.forwardTapEvents(singleFeed, killSwitch, serverConn.host)
+		wg.Add(1)
+		go feed.forwardTapEvents(singleFeed, killSwitch, serverConn.host, &wg)
 	}
+
+	go func() {
+		wg.Wait()
+		close(feed.output)
+	}()
 	return
 }
 
 // Goroutine that forwards Tap events from a single node's feed to the aggregate feed.
-func (feed *TapFeed) forwardTapEvents(singleFeed *memcached.TapFeed, killSwitch chan error, host string) {
+func (feed *TapFeed) forwardTapEvents(singleFeed *memcached.TapFeed, killSwitch chan error, host string, wg *sync.WaitGroup) {
+	defer wg.Done()
 	for {
 		select {
 		case event, ok := <-singleFeed.C:
@@ -143,6 +153,5 @@ func (feed *TapFeed) Close() error {
 
 	feed.closeNodeFeeds()
 	close(feed.quit)
-	close(feed.output)
 	return nil
 }
