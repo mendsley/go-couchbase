@@ -75,6 +75,10 @@ func (feed *TapFeed) run() {
 			feedErr, feed.bucket.Name, retryInterval)
 		err := feed.bucket.refresh()
 		bucketOK = err == nil
+		if !bucketOK {
+			log.Printf("go-couchbase: refresh of bucket %v failed: %v",
+				feed.bucket.Name, err)
+		}
 
 		select {
 		case <-time.After(retryInterval):
