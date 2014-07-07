@@ -80,20 +80,54 @@ func (cp *connectionPool) GetWithTimeout(d time.Duration) (rv *memcached.Client,
 
 	path = "short-circuit"
 
-	// short-circuit available connetions.
-	select {
-	case rv, isopen := <-cp.connections:
-		if !isopen {
-			return nil, errClosedPool
-		}
-		return rv, nil
-	default:
-	}
+	//// short-circuit available connetions.
+	//select {
+	//case rv, isopen := <-cp.connections:
+	//	if !isopen {
+	//		return nil, errClosedPool
+	//	}
+	//	return rv, nil
+	//default:
+	//}
 
-	t := time.NewTimer(ConnPoolAvailWaitTime)
-	defer t.Stop()
+	//t := time.NewTimer(ConnPoolAvailWaitTime)
+	//defer t.Stop()
 
-	// Try to grab an available connection within 1ms
+	//// Try to grab an available connection within 1ms
+	//select {
+	//case rv, isopen := <-cp.connections:
+	//	path = "avail1"
+	//	if !isopen {
+	//		return nil, errClosedPool
+	//	}
+	//	return rv, nil
+	//case <-t.C:
+	//	// No connection came around in time, let's see
+	//	// whether we can get one or build a new one first.
+	//	t.Reset(d) // Reuse the timer for the full timeout.
+	//	select {
+	//	case rv, isopen := <-cp.connections:
+	//		path = "avail2"
+	//		if !isopen {
+	//			return nil, errClosedPool
+	//		}
+	//		return rv, nil
+	//	case cp.createsem <- true:
+	//		path = "create"
+	//		// Build a connection if we can't get a real one.
+	//		// This can potentially be an overflow connection, or
+	//		// a pooled connection.
+	//		rv, err := cp.mkConn(cp.host, cp.auth)
+	//		if err != nil {
+	//			// On error, release our create hold
+	//			<-cp.createsem
+	//		}
+	//		return rv, err
+	//	case <-t.C:
+	//		return nil, ErrTimeout
+	//	}
+	//}
+
 	select {
 	case rv, isopen := <-cp.connections:
 		path = "avail1"
@@ -101,31 +135,18 @@ func (cp *connectionPool) GetWithTimeout(d time.Duration) (rv *memcached.Client,
 			return nil, errClosedPool
 		}
 		return rv, nil
-	case <-t.C:
-		// No connection came around in time, let's see
-		// whether we can get one or build a new one first.
-		t.Reset(d) // Reuse the timer for the full timeout.
-		select {
-		case rv, isopen := <-cp.connections:
-			path = "avail2"
-			if !isopen {
-				return nil, errClosedPool
-			}
-			return rv, nil
-		case cp.createsem <- true:
-			path = "create"
-			// Build a connection if we can't get a real one.
-			// This can potentially be an overflow connection, or
-			// a pooled connection.
-			rv, err := cp.mkConn(cp.host, cp.auth)
-			if err != nil {
-				// On error, release our create hold
-				<-cp.createsem
-			}
-			return rv, err
-		case <-t.C:
-			return nil, ErrTimeout
+
+	case cp.createsem <- true:
+		path = "create"
+		// Build a connection if we can't get a real one.
+		// This can potentially be an overflow connection, or
+		// a pooled connection.
+		rv, err := cp.mkConn(cp.host, cp.auth)
+		if err != nil {
+			// On error, release our create hold
+			<-cp.createsem
 		}
+		return rv, err
 	}
 }
 
